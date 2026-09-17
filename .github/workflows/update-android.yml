@@ -359,6 +359,22 @@ jobs:
         New-Item -ItemType Directory -Force .ci-logs | Out-Null
         python -u .operit2-builder/builder/build_driver.py preflight 2>&1 | Tee-Object -FilePath .ci-logs/preflight.log
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - name: Provide cargo.cmd for the Flutter Web build hook
+      run: |
+        # upstream apps/flutter/app/hook/build.dart builds the Windows command name as
+        # "cargo.cmd", but rustup only ships cargo.exe, so Dart's Process.run dies with
+        # "The system cannot find the file specified" before any Web asset is built.
+        # Add a same-directory shim instead of patching upstream sources.
+        $cargo = Get-Command cargo.exe -ErrorAction SilentlyContinue
+        if (-not $cargo) { throw 'cargo.exe is not available on PATH' }
+        $bin = Split-Path -Parent $cargo.Source
+        $shim = Join-Path $bin 'cargo.cmd'
+        $content = '@echo off' + "`r`n" + '"' + $cargo.Source + '" %*' + "`r`n"
+        Set-Content -LiteralPath $shim -Value $content -Encoding ascii
+        & $shim --version
+        if ($LASTEXITCODE -ne 0) { throw 'cargo.cmd shim did not run' }
+        if (-not (Get-Command cargo.cmd -ErrorAction SilentlyContinue)) { throw 'cargo.cmd is not resolvable through PATH' }
+        Write-Host "cargo.cmd shim ready at $shim"
     - name: Restore exact Web Access checkpoint
       id: web_cache
       uses: actions/cache/restore@v5
