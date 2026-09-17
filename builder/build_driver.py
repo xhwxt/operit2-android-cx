@@ -156,7 +156,8 @@ def main() -> None:
     args = parser.parse_args()
     if channel() == "enhanced":
         prepare_tools()
-    prepare_application(ROOT)
+    from prepare_android import prefer_official_maven_repositories
+    prefer_official_maven_repositories(ROOT, ROOT / "tools" / "release" / "dist")
     if args.stage == "regressions":
         if channel() != "enhanced":
             raise RuntimeError("Flutter enhancement regressions belong to the enhanced channel")
