@@ -15,6 +15,10 @@ name: Build latest Android (Original)
 run-name: Build ${{ inputs.channel || 'original' }} Android ${{ github.run_number }}
 env:
   OPERIT2_CHANNEL: ${{ inputs.channel || 'original' }}
+  # 上游 main 上 Web 构建目前是坏的：core/crates/proxy/scan 的宿主边界检查会在
+  # PackageLoadingProgress.rs 用到 std::thread 时 panic。锁定到最后一个被验证可完整
+  # 出包的上游提交（第三方 2026-09-08 的 ARM64 包即基于该提交）。清空此值即恢复跟随 main。
+  OPERIT2_SOURCE_SHA: c594acf380e79b5d45a81c1fa437118d9370c48e
 permissions:
   contents: read
 concurrency:
