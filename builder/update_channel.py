@@ -135,8 +135,19 @@ def resolve() -> None:
     owner_repo = os.environ["GITHUB_REPOSITORY"]
     upstream = api(f"repos/{UPSTREAM}")
     branch = upstream["default_branch"]
-    commit = api(f"repos/{UPSTREAM}/commits/{quote(branch, safe='')}")
-    sha = commit["sha"]
+    pinned = os.environ.get("OPERIT2_SOURCE_SHA", "").strip().lower()
+    if pinned:
+        # Optional pin: upstream HEAD can regress (build-time host boundary
+        # guards, Windows-only build hooks). A pinned commit still has to exist
+        # upstream and is resolved through the same API, never hardcoded.
+        if not re.fullmatch(r"[0-9a-f]{40}", pinned):
+            raise RuntimeError("OPERIT2_SOURCE_SHA must be a full 40-character commit id")
+        commit = api(f"repos/{UPSTREAM}/commits/{pinned}")
+        sha = commit["sha"]
+        print(f"Pinned upstream source commit {sha} (not {branch} HEAD)", flush=True)
+    else:
+        commit = api(f"repos/{UPSTREAM}/commits/{quote(branch, safe='')}")
+        sha = commit["sha"]
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise RuntimeError("GitHub did not return a full upstream commit ID")
     kind = channel()
