@@ -135,9 +135,10 @@ def prefer_official_maven_repositories(root: Path, dist: Path | None = None) -> 
         for mirror, official in ALIYUN_REPOSITORY_MIRRORS.items():
             changed += text.count(mirror)
             text = text.replace(mirror, official)
-        leftover = sorted(set(re.findall(r"https://maven\.aliyun\.com/[^\s"')]+", text)))
-        if leftover:
-            raise RuntimeError(f"Unmapped Aliyun repository URL(s): {leftover}")
+        found = set(re.findall(r"https://maven\.aliyun\.com/[A-Za-z0-9._/-]+", text))
+        unknown = sorted(found - set(ALIYUN_REPOSITORY_MIRRORS))
+        if unknown:
+            raise RuntimeError(f"Unmapped Aliyun repository URL(s): {unknown}")
         path.write_text(text, encoding="utf-8", newline="\n")
         files.append(path.relative_to(root).as_posix())
     if files:
