@@ -115,7 +115,6 @@ jobs:
       if: steps.runtime_cache.outputs.cache-hit != 'true' && steps.reuse_runtime.outcome != 'success'
     - name: Build upstream terminal runtime
       env:
-        OPERIT2_RUNTIME_ABIS_ONLY: arm64-v8a
         OPERIT_ANDROID_RUNTIME_ABIS: arm64-v8a
       run: |
         set -euo pipefail
@@ -137,6 +136,7 @@ jobs:
         grep -n -A3 '^abis=(' tools/android-runtime/build_alpine_rootfs_wsl.sh
         bash tools/android-runtime/build_android_tools_wsl.sh
         bash tools/android-runtime/build_alpine_rootfs_wsl.sh
+      if: steps.runtime_cache.outputs.cache-hit != 'true' && steps.reuse_runtime.outcome != 'success'
     - name: Check runtime payload before reuse and caching
       shell: bash
       run: |
