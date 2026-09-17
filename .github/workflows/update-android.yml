@@ -114,11 +114,29 @@ jobs:
       run: bash tools/android-runtime/fetch_ndk_wsl.sh
       if: steps.runtime_cache.outputs.cache-hit != 'true' && steps.reuse_runtime.outcome != 'success'
     - name: Build upstream terminal runtime
+      env:
+        OPERIT2_RUNTIME_ABIS_ONLY: arm64-v8a
+        OPERIT_ANDROID_RUNTIME_ABIS: arm64-v8a
       run: |
+        set -euo pipefail
         export ANDROID_NDK_HOME="$HOME/.cache/operit-android-runtime/android-ndk-r29-beta4"
+        # 本流水线只产出 arm64 APK（Gradle 侧固定 -Ptarget-platform=android-arm64），
+        # 上游脚本默认还会编 armeabi-v7a / x86_64，属于纯浪费，这里收敛为单 ABI。
+        python3 - <<'PY'
+        import re
+        from pathlib import Path
+        path = Path('tools/android-runtime/build_alpine_rootfs_wsl.sh')
+        text = path.read_text(encoding='utf-8')
+        new_text, count = re.subn(r'(?ms)^abis=\(.*?^\)',
+                                  'abis=(\n    arm64-v8a\n)', text, count=1)
+        if count != 1:
+            raise SystemExit('unexpected rootfs abis block: refusing to patch')
+        path.write_text(new_text, encoding='utf-8')
+        print('rootfs ABI list restricted to arm64-v8a')
+        PY
+        grep -n -A3 '^abis=(' tools/android-runtime/build_alpine_rootfs_wsl.sh
         bash tools/android-runtime/build_android_tools_wsl.sh
         bash tools/android-runtime/build_alpine_rootfs_wsl.sh
-      if: steps.runtime_cache.outputs.cache-hit != 'true' && steps.reuse_runtime.outcome != 'success'
     - name: Check runtime payload before reuse and caching
       shell: bash
       run: |
