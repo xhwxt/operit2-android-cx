@@ -104,6 +104,60 @@ def prepare_gradle_wrapper(flutter: str, android: Path) -> Path:
     return android / ("gradlew.bat" if os.name == "nt" else "gradlew")
 
 
+ALIYUN_HOST = "maven.aliyun.com"
+ALIYUN_REPOSITORY_MIRRORS = {
+    "https://maven.aliyun.com/repository/google": "https://dl.google.com/dl/android/maven2/",
+    "https://maven.aliyun.com/repository/public": "https://repo1.maven.org/maven2/",
+    "https://maven.aliyun.com/repository/central": "https://repo1.maven.org/maven2/",
+    "https://maven.aliyun.com/repository/gradle-plugin": "https://plugins.gradle.org/m2/",
+}
+
+
+def prefer_official_maven_repositories(root: Path, dist: Path | None = None) -> dict:
+    """Replace the Aliyun Maven mirrors with the official repositories.
+
+    GitHub-hosted runners are outside China, where the Aliyun mirrors frequently
+    answer with 502. Gradle treats a repository 5xx as a hard failure instead of
+    falling through to the next repository, so a flaky mirror breaks the whole
+    build. Only URLs are rewritten: structure, ordering and syntax stay intact,
+    and any unmapped Aliyun path aborts the build instead of being patched
+    silently.
+    """
+    android = root / "apps" / "flutter" / "app" / "android"
+    changed = 0
+    files: list[str] = []
+    for path in sorted(android.rglob("*.gradle*")):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if ALIYUN_HOST not in text:
+            continue
+        for mirror, official in ALIYUN_REPOSITORY_MIRRORS.items():
+            changed += text.count(mirror)
+            text = text.replace(mirror, official)
+        leftover = sorted(set(re.findall(r"https://maven\.aliyun\.com/[^\s"')]+", text)))
+        if leftover:
+            raise RuntimeError(f"Unmapped Aliyun repository URL(s): {leftover}")
+        path.write_text(text, encoding="utf-8", newline="\n")
+        files.append(path.relative_to(root).as_posix())
+    if files:
+        print(f"Maven mirrors: replaced {changed} Aliyun URL(s) in {len(files)} Gradle file(s)", flush=True)
+    else:
+        print("Maven mirrors: no Aliyun repository URL left to replace", flush=True)
+    report = {
+        "change": "Aliyun Maven mirrors replaced with the official repositories",
+        "reason": "Aliyun answers 5xx from GitHub-hosted runners and Gradle treats repository 5xx as a hard failure",
+        "files": files,
+        "replaced_urls": changed,
+    }
+    if dist is not None and files:
+        directory = dist / "compatibility"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "maven-mirrors.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        shutil.copy2(__file__, directory / "prepare_android.py")
+    return report
+
+
 def preflight() -> None:
     root = Path.cwd()
     sys.path.insert(0, str(root / "tools" / "build_scripts"))
