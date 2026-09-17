@@ -1,0 +1,45 @@
+name: Validate fixed signing key
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  keytool-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Verify the signing bundle imports with keytool
+        shell: bash
+        env:
+          OPERIT2_UPDATE_SIGNING: ${{ secrets.OPERIT2_UPDATE_SIGNING }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPERIT2_UPDATE_SIGNING:-}" ]; then echo "OPERIT2_UPDATE_SIGNING secret is missing"; exit 1; fi
+          mkdir -p signing
+          node -e 'const fs=require("fs");const b=JSON.parse(process.env.OPERIT2_UPDATE_SIGNING);if(b.schema!==1)throw new Error("schema");fs.writeFileSync("signing/update-source.p12",Buffer.from(b.pfx_base64,"base64"));fs.writeFileSync("signing/pass.txt",b.password);fs.writeFileSync("signing/expected.txt",String(b.certificate_sha256).toLowerCase());console.log("pfx bytes:",fs.statSync("signing/update-source.p12").size);'
+          PASS="$(cat signing/pass.txt)"
+          export PASS
+          echo "::add-mask::$PASS"
+          keytool -J-Duser.language=en -J-Duser.country=US -list -v -storetype PKCS12 -keystore signing/update-source.p12 -storepass:env PASS > signing/list.txt 2>&1 || { cat signing/list.txt; exit 1; }
+          grep -E "Alias name:|PrivateKeyEntry" signing/list.txt || true
+          ALIASES=$(grep -c "^Alias name:" signing/list.txt || true)
+          PRIV=$(grep -c "PrivateKeyEntry" signing/list.txt || true)
+          echo "aliases=$ALIASES privateKeyEntries=$PRIV"
+          [ "$ALIASES" = "1" ] || { echo "expected exactly one alias"; exit 1; }
+          [ "$PRIV" -ge 1 ] || { echo "no private key entry found"; exit 1; }
+          SRC_ALIAS=$(grep -m1 "^Alias name:" signing/list.txt | sed "s/^Alias name: //")
+          echo "source alias: $SRC_ALIAS"
+          keytool -importkeystore -noprompt -srckeystore signing/update-source.p12 -srcstoretype PKCS12 -srcalias "$SRC_ALIAS" -srcstorepass:env PASS -srckeypass:env PASS -destkeystore signing/operit2-release.keystore -deststoretype JKS -destalias operit2-update -deststorepass:env PASS -destkeypass:env PASS
+          keytool -exportcert -keystore signing/operit2-release.keystore -storepass:env PASS -alias operit2-update -file signing/update-certificate.der
+          ACTUAL=$(sha256sum signing/update-certificate.der | cut -d" " -f1)
+          EXPECTED=$(cat signing/expected.txt)
+          echo "actual   : $ACTUAL"
+          echo "expected : $EXPECTED"
+          [ "$ACTUAL" = "$EXPECTED" ] || { echo "FINGERPRINT MISMATCH"; exit 1; }
+          echo "SIGNING KEY VALIDATED OK"
+          keytool -J-Duser.language=en -J-Duser.country=US -list -v -keystore signing/operit2-release.keystore -storepass:env PASS -alias operit2-update | grep -E "Alias name:|Valid from:|Signature algorithm|Subject:|Public Key" || true
